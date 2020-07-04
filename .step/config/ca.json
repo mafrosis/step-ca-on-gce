@@ -1,0 +1,89 @@
+{
+	"root": "/root/.step/certs/root_ca.crt",
+	"federatedRoots": [],
+	"crt": "/root/.step/certs/intermediate_ca.crt",
+	"key": "projects/step-ca-a48ea0/locations/australia-southeast1/keyRings/step-ca-keyring/cryptoKeys/intermediate/cryptoKeyVersions/1",
+	"kms": {
+		"type": "cloudkms",
+		"credentialsFile": "/root/gcp.json"
+	},
+	"address": ":8080",
+	"dnsNames": [
+		"certs.ca.gcp.mafro.dev"
+	 ],
+	 "ssh": {
+		 "hostKey": "projects/step-ca-a48ea0/locations/australia-southeast1/keyRings/step-ca-keyring/cryptoKeys/ssh-host-key/cryptoKeyVersions/1",
+		 "userKey": "projects/step-ca-a48ea0/locations/australia-southeast1/keyRings/step-ca-keyring/cryptoKeys/ssh-user-key/cryptoKeyVersions/1"
+	 },
+	 "logger": {
+		 "format": "text"
+	 },
+	 "authority": {
+		 "provisioners": [
+			 {
+				 "type": "JWK",
+				 "name": "admin",
+				 "key": {
+					 "use": "sig",
+					 "kty": "EC",
+					 "kid": "8cYaGN77mzdRPklPA-5Juw7sep6ZGLgLDAnER9Y86AQ",
+					 "crv": "P-256",
+					 "alg": "ES256",
+					 "x": "QoEHmTFli6vQRVoFBsu1wzhalI6o0e1SAovccsRCpLE",
+					 "y": "ZnBS3sU0I1L06sbZhmDpwugZU6WVetdG1msXkjPI5Bc"
+				 },
+				 "encryptedKey": "eyJhbGciOiJQQkVTMi1IUzI1NitBMTI4S1ciLCJjdHkiOiJqd2sranNvbiIsImVuYyI6IkEyNTZHQ00iLCJwMmMiOjEwMDAwMCwicDJzIjoiSC0zOEZkSGNRRXZHQVgwWjJmN2hEQSJ9.XAt1iquyH-Q25EhTMUVVnm0NxHehtx09Qslnq6_vvu8PkNKQJfbrLQ.r0NbVzIRW14WFznu.VxnW4om8ULfXwSisFzKKRgu36TEDC9870g90MzKZxnYU_2tkKRdmCEpUe2x5PD3xpE3Q8K1hfD9LsaMLJAtA1cDaBDwberNfwS8ZNteMRfoVGDWqf_TnlpdYRVXs6Q9uNj23hB0FGPDREgILfGJNmBJxcTryCdzcHZ4kSjqUYBTbrNOuUvOBFE-0SxtGy2yhJlj7Xeo9CX63AA5Pa9ol98Oj6NthCMQSlcZNp2LFeCkoTU7_HcyKJq7cvheiKCxM4UDo_dFbhL1ANzIF56h8wZGJGR8Ci4GYYQO92d82IqCFzTrT4ZtPMwG0FpzQcb-743EEBU0Um1o_-cCMXbM.wWg9lc1dqojJ-yRCTbPbMg",
+				 "claims": {
+					 "enableSSHCA": true
+				 }
+			 }
+		 ]
+	 },
+	 "templates": {
+		 "ssh": {
+			 "user": [
+				 {
+					 "name": "include.tpl",
+					 "type": "snippet",
+					 "template": "templates/ssh/include.tpl",
+					 "path": "~/.ssh/config",
+					 "comment": "#"
+				 },
+				 {
+					 "name": "config.tpl",
+					 "type": "file",
+					 "template": "templates/ssh/config.tpl",
+					 "path": "ssh/config",
+					 "comment": "#"
+				 },
+				 {
+					 "name": "known_hosts.tpl",
+					 "type": "file",
+					 "template": "templates/ssh/known_hosts.tpl",
+					 "path": "ssh/known_hosts",
+					 "comment": "#"
+				 }
+			 ],
+			 "host": [
+				 {
+					 "name": "sshd_config.tpl",
+					 "type": "snippet",
+					 "template": "templates/ssh/sshd_config.tpl",
+					 "path": "/etc/ssh/sshd_config",
+					 "comment": "#",
+					 "requires": [
+						 "Certificate",
+						 "Key"
+					 ]
+				 },
+				 {
+					 "name": "ca.tpl",
+					 "type": "snippet",
+					 "template": "templates/ssh/ca.tpl",
+					 "path": "/etc/ssh/ca.pub",
+					 "comment": "#"
+				 }
+			 ]
+		 }
+	 }
+}
