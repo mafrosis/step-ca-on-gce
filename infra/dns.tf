@@ -6,29 +6,14 @@ data google_dns_managed_zone project {
   name    = var.dns_zone
 }
 
-resource google_dns_record_set cloudrun_cname {
+resource google_dns_record_set certs_a {
   name         = "certs.${data.google_dns_managed_zone.project.dns_name}"
   project      = data.google_project.project.project_id
   managed_zone = data.google_dns_managed_zone.project.name
-  type         = "CNAME"
+  type         = "A"
   ttl          = 300
+
   rrdatas      = [
-    "ghs.googlehosted.com.",
+    google_compute_address.static.address
   ]
-}
-
-# Map the domain to our cloudrun service
-resource google_cloud_run_domain_mapping default {
-  project  = data.google_project.project.project_id
-	name     = trimsuffix("certs.${data.google_dns_managed_zone.project.dns_name}", ".")
-  location = google_cloud_run_service.step_ca.location
-
-  metadata {
-    namespace = data.google_project.project.project_id
-  }
-
-  spec {
-    route_name     = google_cloud_run_service.step_ca.name
-		force_override = true
-  }
 }
