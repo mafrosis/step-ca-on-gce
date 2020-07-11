@@ -1,6 +1,8 @@
 .terraform
 terraform.auto.tfvars
 
+step-ca-sa.json
+
 root_ca.crt
 intermediate_ca.crt
 ssh_user_ca_key.pub
