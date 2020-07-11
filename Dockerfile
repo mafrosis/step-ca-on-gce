@@ -1,14 +1,10 @@
 FROM google/cloud-sdk:alpine
 
-ENV PORT 8080
 ENV STEPPATH /root/.step
-ENV STEPFORCEHTTP 1
 
-#RUN curl -o /tmp/step.tgz -L https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_linux_0.14.6_amd64.tar.gz && \
-#	tar xzf /tmp/step.tgz --strip-components=1 && \
-#	mv bin/step-ca /usr/local/bin
-
-COPY certificates/bin/step-ca /usr/local/bin/step-ca
+RUN curl -o /tmp/step.tgz -L https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_linux_0.14.6_amd64.tar.gz && \
+	tar xzf /tmp/step.tgz --strip-components=1 && \
+	mv bin/step-ca /usr/local/bin
 
 RUN mkdir -p /root/.step/config && mkdir /root/.step/certs
 

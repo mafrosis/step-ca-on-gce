@@ -7,7 +7,7 @@
 		"type": "cloudkms",
 		"credentialsFile": "/root/gcp.json"
 	},
-	"address": ":8080",
+	"address": ":443",
 	"dnsNames": [
 		"certs.ca.gcp.mafro.dev"
 	 ],
