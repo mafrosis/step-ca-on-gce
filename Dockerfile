@@ -7,9 +7,9 @@ RUN curl -o /tmp/step.tgz -L https://github.com/smallstep/certificates/releases/
 	mv bin/step-ca /usr/local/bin
 
 RUN mkdir -p /root/.step/config && mkdir /root/.step/certs
-
-COPY .step/config/ca.json /root/.step/config
-COPY intermediate_ca.crt root_ca.crt /root/.step/certs/
 COPY .step/templates /root/.step/templates
+
+COPY docker-entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 CMD ["step-ca", "/root/.step/config/ca.json"]

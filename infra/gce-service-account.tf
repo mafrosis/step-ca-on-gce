@@ -10,6 +10,8 @@ locals {
     "roles/cloudkms.signerVerifier",
     # .. pull from Container Registry
     "roles/storage.objectViewer",
+    # .. read secret payload from Secrets Manager
+    "roles/secretmanager.secretAccessor",
   ]
 }
 
