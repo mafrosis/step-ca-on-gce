@@ -4,8 +4,7 @@
 	"crt": "/root/.step/certs/intermediate_ca.crt",
 	"key": "projects/step-ca-a48ea0/locations/australia-southeast1/keyRings/step-ca-keyring/cryptoKeys/intermediate/cryptoKeyVersions/1",
 	"kms": {
-		"type": "cloudkms",
-		"credentialsFile": "/root/gcp.json"
+		"type": "cloudkms"
 	},
 	"address": ":443",
 	"dnsNames": [

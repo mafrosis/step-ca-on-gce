@@ -12,7 +12,4 @@ COPY .step/config/ca.json /root/.step/config
 COPY intermediate_ca.crt root_ca.crt /root/.step/certs/
 COPY .step/templates /root/.step/templates
 
-# HACK this must be replaced with Secrets Manager
-COPY step-ca-sa.json /root/gcp.json
-
 CMD ["step-ca", "/root/.step/config/ca.json"]
