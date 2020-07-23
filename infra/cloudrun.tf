@@ -11,6 +11,8 @@ locals {
     "roles/secretmanager.secretAccessor",
     # .. use the VPC connector for private comms
     "roles/vpaccess.user",
+    # .. read info about compute (specifically GCE instance groups)
+    "roles/compute.viewer",
   ]
 }
 
