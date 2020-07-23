@@ -8,6 +8,11 @@ locals {
   project_random_suffix = strrev(substr(strrev(var.project_id), 0, 6))
 }
 
+data google_compute_network vpc {
+  project = var.project_id
+  name    = format("vpc-%s", local.project_random_suffix)
+}
+
 data google_compute_subnetwork subnet {
   project = var.project_id
   region  = var.region

@@ -9,6 +9,8 @@ locals {
   cloudrun_iam_roles = [
     # .. access encrypted secrets
     "roles/secretmanager.secretAccessor",
+    # .. use the VPC connector for private comms
+    "roles/vpaccess.user",
   ]
 }
 
@@ -50,6 +52,14 @@ resource google_cloud_run_service proxy {
 
       service_account_name = google_service_account.cloudrun.email
     }
+
+    metadata {
+      annotations = {
+        "autoscaling.knative.dev/maxScale"        = "1000"
+        "run.googleapis.com/client-name"          = "cloud-console"
+        "run.googleapis.com/vpc-access-connector" = google_vpc_access_connector.private_access.id
+      }
+    }
   }
 
   traffic {
@@ -70,4 +80,14 @@ resource google_cloud_run_service_iam_member allUsers {
   service  = google_cloud_run_service.proxy.name
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# Add a private VPC connector to for private access from Cloud Run to Step CA on GCE
+resource google_vpc_access_connector private_access {
+  project = data.google_project.project.project_id
+  region  = var.region
+  network = data.google_compute_network.vpc.name
+
+  name          = "step-ca-private-access"
+  ip_cidr_range = "10.8.0.0/28"
 }

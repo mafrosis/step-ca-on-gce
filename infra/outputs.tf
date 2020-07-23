@@ -1,3 +1,7 @@
+output network {
+  value = data.google_compute_network.vpc.self_link
+}
+
 output subnet {
   value = data.google_compute_subnetwork.subnet.self_link
 }
