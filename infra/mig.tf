@@ -59,7 +59,7 @@ resource google_compute_instance_template tpl {
   }
 
   service_account {
-		email = data.google_service_account.gce.email
+    email = google_service_account.gce.email
 
     # full API to cloud, access is limited via IAM role
     # https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances#best_practices

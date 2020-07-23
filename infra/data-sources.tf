@@ -24,8 +24,3 @@ data google_kms_key_ring keyring {
   location = var.region
   name     = format("%s-keyring", data.google_project.project.name)
 }
-
-data google_service_account gce {
-  project    = var.project_id
-  account_id = "gce-sa"
-}

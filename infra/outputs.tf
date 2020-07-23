@@ -14,6 +14,18 @@ output gce_external_ip {
   value = google_compute_address.static.address
 }
 
+output gce_service_account {
+  value = google_service_account.gce.email
+}
+
 output gce_container_spec {
   value = module.vm_container.metadata_value
+}
+
+output cloudrun_service_account {
+  value = google_service_account.cloudrun.email
+}
+
+output cloudrun_spec {
+  value = google_cloud_run_service.proxy.status
 }

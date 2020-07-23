@@ -1,7 +1,6 @@
 locals {
   gce_sa = format(
-    "serviceAccount:%s",
-    data.google_service_account.gce.email,
+    "serviceAccount:%s", google_service_account.gce.email
   )
 
   # Allow GCE service account to ..
@@ -13,6 +12,12 @@ locals {
     # .. read secret payload from Secrets Manager
     "roles/secretmanager.secretAccessor",
   ]
+}
+
+resource google_service_account gce {
+  account_id   = "gce-sa"
+  display_name = "SA for Step CA on GCE"
+  project      = data.google_project.project.project_id
 }
 
 # Apply IAM roles to the project for project's service account
