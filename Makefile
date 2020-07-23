@@ -11,7 +11,10 @@ setup-kms:
 		-ring=step-ca-keyring \
 		-ssh
 
+.PHONY: build
+build:
+	docker build -t asia.gcr.io/$(PROJECT_ID)/step-ca .
+
 .PHONY: build-and-push
-build-and-push:
-	docker build -t asia.gcr.io/$(PROJECT_ID)/step-ca:stable .
-	docker push asia.gcr.io/$(PROJECT_ID)/step-ca:stable
+build-and-push: build
+	docker push asia.gcr.io/$(PROJECT_ID)/step-ca
