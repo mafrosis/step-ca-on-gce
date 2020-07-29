@@ -4,7 +4,24 @@ module vm_container {
 
   container = {
     image = format("asia.gcr.io/%s/step-ca", data.google_project.project.project_id)
+
+    volumeMounts = [
+      {
+        name      = "db"
+        mountPath = "/root/.step/db"
+        readOnly  = false
+      },
+    ]
   }
+
+  volumes = [
+    {
+      name = "db"
+      hostPath = {
+        path = "/home/db"
+      }
+    },
+  ]
 
   restart_policy = "Always"
 }
