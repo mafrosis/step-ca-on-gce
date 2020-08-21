@@ -20,10 +20,17 @@ resource google_service_account gce {
   project      = data.google_project.project.project_id
 }
 
-# Apply IAM roles to the project for project's service account
+# Apply IAM roles to the project step-ca GCE VM service account
 resource google_project_iam_member gce_roles {
   project = data.google_project.project.project_id
   count   = length(local.gce_iam_roles)
   role    = local.gce_iam_roles[count.index]
   member  = local.gce_sa
+}
+
+# Read/write on the Step CA DB backup bucket
+resource google_storage_bucket_iam_member gce_storage_access {
+  bucket = google_storage_bucket.step_db_backup.name
+  role   = "roles/storage.objectAdmin"
+  member = local.gce_sa
 }

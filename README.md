@@ -463,3 +463,13 @@ You can test a startup script in Container-optimised OS with the following comma
     sudo google_metadata_script_runner --script-type startup --debug
 
 * https://cloud.google.com/compute/docs/startupscript#on_container-optimized_os_ubuntu_and_sles_images
+
+
+### Mounting a GCS bucket via fuse
+
+The included [`docker-entrypoint.sh`](./docker-entrypoint.sh#L20) shows mounting a GCS bucket before
+a docker application starts up.
+
+The build steps to make `gcsfuse` binary available are in the [`Dockerfile`](./Dockerfile#L5).
+
+* https://serverfault.com/a/968639/89669

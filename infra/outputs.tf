@@ -29,3 +29,7 @@ output cloudrun_service_account {
 output cloudrun_spec {
   value = google_cloud_run_service.proxy.status
 }
+
+output db_backup_bucket {
+  value = google_storage_bucket.step_db_backup.name
+}
