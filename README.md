@@ -1,14 +1,16 @@
-# Smallstep CA in Cloud Run
+# Smallstep CA in GCP
 
-## Install Smallstep
+## Install Smallstep CLI
 
-    curl -L -O https://github.com/smallstep/certificates/releases/download/v0.14.6/step-cli_0.14.6_amd64.deb
-    sudo dpkg -i step-cli_0.14.6_amd64.deb
+    curl -o /tmp/step.tgz -L https://github.com/smallstep/cli/releases/download/v0.14.6/step_linux_0.14.6_armv7.tar.gz
+    tar xzf /tmp/step.tgz --strip-components=1 -C /tmp
+    mv /tmp/bin/step /usr/local/bin
 
-### Install Certificates CLI
+### Install Smallstep CA
 
-    curl -L -O https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_0.14.6_amd64.deb
-    sudo dpkg -i step-certificates_0.14.6_amd64.deb
+    curl -o /tmp/step-ca.tgz -L https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_linux_0.14.6_amd64.tar.gz
+    tar xzf /tmp/step-ca.tgz --strip-components=1 -C /tmp
+    mv /tmp/bin/step-ca /usr/local/bin
 
 ### Configure and run CA
 
@@ -17,7 +19,6 @@
         --dns certs.mafro.dev --address ":443" \
         --password-file password.txt \
         --provisioner-password-file password.txt
-    
     step-ca ~/.step/config/ca.json
 
 
@@ -55,7 +56,7 @@ changes the security posture considerably, since there is no raw access to the p
 IAM-managed access to _use_ the keys for encryption/signing.
 
 Based on the [documentation here](https://github.com/smallstep/certificates/blob/master/docs/kms.md),
-run the following: 
+run the following:
 
 ```
 $ step-cloudkms-init -credentials-file=$GOOGLE_APPLICATION_CREDENTIALS \
@@ -129,3 +130,336 @@ API automatically.
 
 This final -hack-step means downloading a key for this service account, and building a new docker
 image with the key baked in :/
+
+
+### How to use SSH
+
+This section is essentially short-form instructions derived from
+[smallstep.com/blog/diy-single-sign-on-for-ssh](https://smallstep.com/blog/diy-single-sign-on-for-ssh/)
+
+```
+    ┌────────┐        ┌────────┐          ┌────────┐
+    │        │        │        │          │        │
+    │ Client │──SSH──▶│ Server │──HTTPS──▶│   CA   │
+    │        │        │        │          │        │
+    └────────┘        └────────┘          └────────┘
+```
+
+#### Setup the Google oAuth app
+
+Note: Naming conventions mean we are SSHing from the _client_ into the _host_ server.
+
+From `1. CREATE A GOOGLE OAUTH CREDENTIAL`:
+
+ 1. Configure oAuth consent at https://console.developers.google.com/apis/credentials/consent
+ 2. Create an oAuth app at https://console.developers.google.com/apis/credentials/oauthclient, choosing `Desktop app`
+
+#### Configure Step CLI on the host SSH server
+
+As root, install the binary in [Install Smallstep CLI](#install-smallstep-cli).
+
+#### Create trust relationship between host server and our CA
+
+Next our CA needs to trust an identity document provided by the host system. In the blog post,
+the host is an AWS EC2 instance which provides its instance identity to the CA server, and is trusted
+via the Amazon signature of the AWS account ID (see [script here](https://gist.github.com/tashian/fde43668cbf6e3227fb13ef51db650b8)).
+
+The following should be run as root, so we have permission to read/write `/etc/ssh`. In this example,
+the server's hostname is `locke`:
+
+ 0. `export HOST=locke`
+ 1. `CA_FINGERPRINT=$(step certificate fingerprint root_ca.crt)`
+ 2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT`
+ 3. `TOKEN=$(step ca token $HOST --ssh --host --provisioner admin)`
+ 4. `echo $TOKEN | step crypto jwt inspect --insecure`
+ 5. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner AWS --principal $HOST --token $TOKEN`
+ 6. `step ssh config --host --set Certificate=ssh_host_ecdsa_key-cert.pub --set Key=ssh_host_ecdsa_key`
+ 7. `systemctl restart sshd`
+
+#### Setup the client to use SSH via OIDC
+
+The following steps are run on the _client_ system, which is connecting to the host configured above.
+
+ 1. `FINGERPRINT=$(step certificate fingerprint root_ca.crt)`
+ 2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $FINGERPRINT`
+ 3. `step ssh list --raw | step ssh inspect`
+ 4. `step ssh config`
+
+#### Make sure the host renews the host cert before expiry
+
+```
+cat <<EOF > /etc/cron.weekly/rotate-certificate
+#!/bin/sh
+export STEPPATH=/root/.step
+cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
+exit 0
+EOF
+```
+
+#### References for oAuth
+
+- https://smallstep.com/blog/diy-single-sign-on-for-ssh/
+- https://github.com/smallstep/certificates/blob/master/docs/provisioners.md#oidc
+
+
+### Configuring an nginx with mTLS
+
+Detailed instructions which expand on this [getting started guide](https://smallstep.com/hello-mtls/doc/combined/nginx/requests).
+
+```
+    ┌────────┐         ┌────────┐          ┌────────┐
+    │        │         │        │          │        │
+    │ Client │──mTLS──▶│ Server │──HTTPS──▶│   CA   │
+    │        │         │        │          │        │
+    └────────┘         └────────┘          └────────┘
+```
+
+The following should be run as root, so we have permission to read/write `/etc/ssl`:
+
+ 1. `CA_FINGERPRINT=$(step certificate fingerprint root_ca.crt)`
+ 2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT`
+ 3. `step ca certificate ha.mafro.net /etc/ssl/ha.crt /etc/ssl/ha.key --provisioner=admin --san=ha.mafro.net --san=ringil`
+
+An example `nginx` server config using these certs, also configured for mTLS.
+
+```
+server {
+  listen 8882 ssl;
+  server_name ringil;
+
+  ssl_certificate         /etc/ssl/ha.crt;
+  ssl_certificate_key     /etc/ssl/ha.key;
+  ssl_dhparam             /etc/ssl/dhparam.pem;
+  ssl_protocols           TLSv1.2 TLSv1.3;
+  ssl_ciphers             HIGH:!aNULL:!MD5;
+  ssl_client_certificate  /root/.step/certs/root_ca.crt;
+  ssl_verify_client       on;
+
+  location / {
+    proxy_pass http://backend;
+  }
+}
+```
+
+#### Make sure the host renews the host cert before expiry
+
+```
+cat <<EOF > /etc/cron.weekly/rotate-certificate
+#!/bin/sh
+export STEPPATH=/root/.step
+cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
+exit 0
+EOF
+```
+
+
+### Service-specific JWK Provisioner
+
+To auto-provision certificates on AWS Lambda, we need an unencrypted private key which is known to
+the CA.
+
+Generate a new keypair and decrypt the keypair's password for securing in AWS KMS. Lastly, a `JWK`
+provisioner is created from that keypair:
+
+ 1. `step crypto jwk create lambda-jwk.pub lambda-jwk.key`
+ 2. `step crypto jwe decrypt < lambda-jwk.key > lambda-jwk.unencrypted`
+ 3. `step ca provisioner add LambdaAWS lambda-jwk.key --type JWK`
+
+The `.unencrypted` file should be stored securely in your application (in this case AWS KMS), and
+then deleted.
+
+Use this unencrypted private key to generate your own token, and then certificate, without
+interaction:
+
+ 1. `step ca token test-token-subj --provisioner ha@lambda.aws --key lambda-jwk.unencrypted`
+ 2. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner AWS --principal $HOST --token $TOKEN`
+
+
+## References
+
+https://smallstep.com/blog/step-certificates/#using-certificates-with-tls
+https://smallstep.com/blog/diy-single-sign-on-for-ssh/
+https://gitter.im/smallstep/community
+
+
+## GCE Doco
+
+Some notes and recipes for useful things you can do in GCE.
+
+
+### Running a managed docker image on a VM
+
+GCE can be configured to run a docker container on VM startup - which is a neat way to continue to
+use docker for development, but target a VM in production.
+
+The `terraform-google-container-vm` module generates the metadata for a VM instance template, users
+just need to see how to configure the module by using
+[the examples](https://github.com/terraform-google-modules/terraform-google-container-vm/tree/v2.0.0/examples).
+
+```
+module vm_container {
+  source = "github.com/terraform-google-modules/terraform-google-container-vm?ref=v2.0.0"
+
+  container = {
+    image = format("asia.gcr.io/%s/step-ca", data.google_project.project.project_id)
+  }
+  restart_policy = "Always"
+}
+
+resource google_compute_instance_template tpl {
+  region   = var.region
+  project  = data.google_project.project.project_id
+
+  machine_type = "e2-micro"
+  metadata     = {
+    gce-container-declaration: module.vm_container.metadata_value
+  }
+}
+
+```
+
+* https://cloud.google.com/compute/docs/containers/deploying-containers
+
+
+### Testing a new docker image without a VM restart
+
+One can quite easily test a new docker image by restarting the `konlet` service. Assuming the `latest`
+docker image has been updated on the registry:
+
+0. `IMAGE_ID=$(docker ps --format '{{.ID}}' --filter 'ancestor=asia.gcr.io/step-ca-a3dd5f/step-ca')`
+1. `docker stop $IMAGE_ID`
+2. `docker rm $IMAGE_ID`
+3. `docker pull asia.gcr.io/step-ca-a3dd5f/step-ca`
+4. `sudo systemctl restart konlet-startup`
+
+
+### Mounting a host volume into the docker image
+
+The `terraform-google-container-vm` module comes with quite a few useful
+[examples](https://github.com/terraform-google-modules/terraform-google-container-vm/blob/v2.0.0/examples/simple_instance/main.tf),
+but the following recipe is missing:
+
+```
+module vm_container {
+  source = "github.com/terraform-google-modules/terraform-google-container-vm?ref=v2.0.0"
+
+  container = {
+    image = format("asia.gcr.io/%s/step-ca", data.google_project.project.project_id)
+
+    volumeMounts = [
+      {
+        name      = "db"
+        mountPath = "/root/.step/db"
+        readOnly  = false
+      },
+    ]
+  }
+
+  volumes = [
+    {
+      name = "db"
+      hostPath = {
+        path = "/home/db"
+      }
+    },
+  ]
+}
+```
+
+* [konlet source which helped to figure this out](https://github.com/GoogleCloudPlatform/konlet/blob/master/gce-containers-startup/volumes/volumes_test.go#L381)
+
+
+### Quick SSH via IAP
+
+You can use Google's Identity-Aware Proxy to help with managing SSH access to VMs in GCE. Ensure you
+have the right port open on the firewall:
+
+```
+resource google_compute_firewall iap_ssh {
+  project = google_project.project.project_id
+  network = google_compute_network.network.self_link
+  name    = "allow-ssh-ingress-from-iap"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+}
+```
+
+And then simply use gcloud to connect:
+
+    gcloud compute ssh ca-x  --tunnel-through-iap --zone australia-southeast1-c
+
+
+### Using toolbox on COS
+
+After logging into a GCE instance in your shell, use the `toolbox` command to fetch and run a
+debian-based docker image handy for debugging.
+
+```
+mafro@ca-c3d8 ~ $ toolbox
+20200603-00: Pulling from google-containers/toolbox
+1c6172af85ee: Pull complete
+a4b5cec33934: Pull complete
+b7417d4f55be: Pull complete
+fed60196983f: Pull complete
+8e1533dfae69: Pull complete
+112bf8e3d384: Pull complete
+1df10c12cc15: Pull complete
+b33e020bb38a: Pull complete
+938e6be48196: Pull complete
+Digest: sha256:36e2f6b8aa40328453aed7917860a8dee746c101dfde4464ce173ed402c1ec57
+Status: Downloaded newer image for gcr.io/google-containers/toolbox:20200603-00
+gcr.io/google-containers/toolbox:20200603-00
+0877997d383a6317d60d0ef76af1f5f914e793f4a65b84094bdec09c284e22c3
+mafro-gcr.io_google-containers_toolbox-20200603-00
+Please do not use --share-system anymore, use $SYSTEMD_NSPAWN_SHARE_instead.
+Spawning container mafro-gcr.io_google-containers_toolbox-20200603-00 on /var/lib/toolbox/mafro-gcr.io_google-containers_toolbox-20200603-00.
+Press ^] three times within 1s to kill container.
+root@ca-c3d8:~#
+```
+
+* https://cloud.google.com/container-optimized-os/docs/how-to/toolbox
+
+
+### Using gsutil on Container-optimised OS
+
+As container-optimised OS does not come with `gcloud` and friends, the easiest solution is to simply
+user docker:
+
+    docker run --rm google/cloud-sdk:alpine gsutil --help
+
+
+### Configuring a startup/shutdown down script via Terraform
+
+A simple metadata key configures a startup/shutdown script:
+
+```
+resource google_compute_instance_template tpl {
+  region   = var.region
+  project  = data.google_project.project.project_id
+
+  machine_type = "e2-micro"
+  metadata     = {
+    gce-container-declaration: module.vm_container.metadata_value
+    shutdown-script: file("preempt.sh")
+    startup-script:  file("startup.sh")
+  }
+
+...
+```
+
+* https://cloud.google.com/compute/docs/startupscript
+
+
+### Testing a startup/shutdown down script (in COS)
+
+You can test a startup script in Container-optimised OS with the following command. Substitute
+`shutdown` to test the shutdown script.
+
+    sudo google_metadata_script_runner --script-type startup --debug
+
+* https://cloud.google.com/compute/docs/startupscript#on_container-optimized_os_ubuntu_and_sles_images
