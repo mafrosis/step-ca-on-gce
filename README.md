@@ -1,18 +1,74 @@
 # Smallstep CA in GCP
 
-## Install Smallstep CLI
+## Problem Statement and Ecosystem
 
-    curl -o /tmp/step.tgz -L https://github.com/smallstep/cli/releases/download/v0.14.6/step_linux_0.14.6_armv7.tar.gz
+I run [Home Assistant](https://www.home-assistant.io) in my home network, and wanted to expose that
+to the internet in order to integrate with a Google Home smart speaker. A sensible choice is to
+require mTLS client auth on all inbound conections, but that is hard without [sound PKI](https://smallstep.com/blog/everything-pki/).
+
+This is where [Small Step's CA](https://github.com/smallstep/certificates) comes in.
+
+An architecture diagram of the full ecosystem:
+
+
+```
+                                      ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+                                         step-ca project                                                             
+┌─ ── ── ── ── ─┐                     │                                                                             │
+│    Google                              ┌─────────────────────────────────────┐          ┌──────────────────────┐   
+    Assistant   │──HTTPS──────┐       │  │ Google PaaS          ┌────────────┐ │          │ VPC subnet           │  │
+│     Cloud     │             │          │                      │ Serverless │ │          │                      │   
+└ ── ── ── ── ──            Public    │  │  ┌───────────────┐ ┌▶│    VPC     │─┼─────┐    │  ┌────────────────┐  │  │
+        ▲                endpoint with   │  │  oAuth Proxy  │ │ │ Connector  │ │ request  │  │                │  │   
+        │               Google-provided──┼─▶│     NGINX     │─┘ └────────────┘ │ TLS cert │  │ Small Step CA  │  │  │
+        └─┐                SSL cert      │  │  (Cloud Run)  │                  │     └────┼─▶│    (GCE VM)    │  │   
+          │                           │  │  └───────────────┘                  │          │  │                │  │  │
+          │                              │          │                          │          │  └────────────────┘  │   
+          │                           │  │      proxied                        │          │           ▲          │  │
+                                         └──────requests───────────────────────┘          └───────────┼──────────┘   
+        User                          │        with added                                             │             │
+     interaction                                  mTLS                                                │              
+                                      └ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Firewalled  ─ ─ ─ ┘
+                                                  │                                                to Home           
+                                                  │                                              external IP         
+                                         ┌────────┼────────────────────────────────────────┐          │              
+ ┌─ ── ── ── ── ┐                        │        ▼                                        │          │              
+ │    Gandi     │          ACME          │   ┌─────────┐   refresh                         │          │              
+ │   Live DNS    ◀────────DNS-01─────────┼───│  Caddy  │───SSL cert────────────────────────┼──────────┘              
+                │       challenge        │   └─────────┘                                   │                         
+ └─ ── ── ── ── ┘                        │        │                        ┌────────────┐  │                         
+                                         │        │                        │    Home    │  │                         
+                                         │        └─────────────HTTP──────▶│ Assistant  │  │                         
+                                         │                                 └────────────┘  │                         
+                                         │ Home network                                    │                         
+                                         └─────────────────────────────────────────────────┘                         
+```
+
+
+## Basic Setup
+
+The following are shorthand copy-pasteable commands to help you try Smallstep out.
+
+
+### Install Smallstep CLI
+
+The [CLI]() is required to setup and interact with the CA from the shell:
+
+    curl -o /tmp/step.tgz -L https://github.com/smallstep/cli/releases/download/v0.14.6/step_linux_0.14.6_amd64.tar.gz
     tar xzf /tmp/step.tgz --strip-components=1 -C /tmp
     mv /tmp/bin/step /usr/local/bin
 
 ### Install Smallstep CA
+
+Install the actual [CA]():
 
     curl -o /tmp/step-ca.tgz -L https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_linux_0.14.6_amd64.tar.gz
     tar xzf /tmp/step-ca.tgz --strip-components=1 -C /tmp
     mv /tmp/bin/step-ca /usr/local/bin
 
 ### Configure and run CA
+
+Basic two-liner setup - see `step-ca --help`:
 
     step ca init --name "mafro.dev CA" \
         --provisioner admin \
