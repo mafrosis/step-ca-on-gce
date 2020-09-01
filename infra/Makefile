@@ -1,6 +1,6 @@
 .PHONY: all clean test
 
-PROJECT_ID?=step-ca-410ca8
+PROJECT_ID?=step-ca-a48ea0
 TF_STATE_BUCKET?=$(PROJECT_ID)-terraform-state
 
 
