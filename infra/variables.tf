@@ -13,3 +13,8 @@ variable dns_zone {
   description = "The DNS zone predefined for services in this project"
   type        = string
 }
+
+variable step_certs_version {
+  description = "Set the Step CA version"
+  type        = string
+}

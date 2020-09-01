@@ -16,8 +16,8 @@ setup-kms:
 build:
 	docker build \
 		--build-arg STEP_CERTS_VERSION=$(STEP_CERTS_VERSION) \
-		-t asia.gcr.io/$(PROJECT_ID)/step-ca .
+		-t asia.gcr.io/$(PROJECT_ID)/step-ca:$(STEP_CERTS_VERSION) .
 
 .PHONY: build-and-push
 build-and-push: build
-	docker push asia.gcr.io/$(PROJECT_ID)/step-ca
+	docker push asia.gcr.io/$(PROJECT_ID)/step-ca:$(STEP_CERTS_VERSION)

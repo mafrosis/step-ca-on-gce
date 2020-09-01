@@ -3,7 +3,7 @@ module vm_container {
   source = "github.com/terraform-google-modules/terraform-google-container-vm?ref=v2.0.0"
 
   container = {
-    image = format("asia.gcr.io/%s/step-ca", data.google_project.project.project_id)
+    image = format("asia.gcr.io/%s/step-ca:%s", data.google_project.project.project_id, var.step_certs_version)
 
     securityContext = {
       privileged = true
