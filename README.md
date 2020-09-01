@@ -188,17 +188,28 @@ This final -hack-step means downloading a key for this service account, and buil
 image with the key baked in :/
 
 
-### How to use SSH
+### SSO for SSH
 
 This section is essentially short-form instructions derived from
-[smallstep.com/blog/diy-single-sign-on-for-ssh](https://smallstep.com/blog/diy-single-sign-on-for-ssh/)
+[smallstep.com/blog/diy-single-sign-on-for-ssh](https://smallstep.com/blog/diy-single-sign-on-for-ssh/).
+
+Smallstep CA can issue certs for use with SSH. By configuring Google oAuth as the identity provider,
+Google does the authentication for us, and `step-ca` issues the cert.
+
 
 ```
-    ┌────────┐        ┌────────┐          ┌────────┐
-    │        │        │        │          │        │
-    │ Client │──SSH──▶│ Server │──HTTPS──▶│   CA   │
-    │        │        │        │          │        │
-    └────────┘        └────────┘          └────────┘
+┌──────────┐            ┌──────────┐           ┌─ ── ── ── ── ─┐
+│          │            │          │                            
+│  Client  │────SSH────▶│  Server  │           │    Google     │
+│          │            │          │           │   oAuth app   │
+└──────────┘            └──────────┘                            
+      │                                        └─ ── ── ── ── ─┘
+      │                                                ▲        
+      │                 ┌──────────┐                   │        
+    request             │          │                   │        
+      cert─────────────▶│    CA    │────authenticate───┘        
+                        │          │                            
+                        └──────────┘                            
 ```
 
 #### Setup the Google oAuth app
@@ -228,7 +239,7 @@ the server's hostname is `locke`:
  2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT`
  3. `TOKEN=$(step ca token $HOST --ssh --host --provisioner admin)`
  4. `echo $TOKEN | step crypto jwt inspect --insecure`
- 5. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner AWS --principal $HOST --token $TOKEN`
+ 5. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner admin --principal $HOST --token $TOKEN`
  6. `step ssh config --host --set Certificate=ssh_host_ecdsa_key-cert.pub --set Key=ssh_host_ecdsa_key`
  7. `systemctl restart sshd`
 
@@ -263,11 +274,17 @@ EOF
 Detailed instructions which expand on this [getting started guide](https://smallstep.com/hello-mtls/doc/combined/nginx/requests).
 
 ```
-    ┌────────┐         ┌────────┐          ┌────────┐
-    │        │         │        │          │        │
-    │ Client │──mTLS──▶│ Server │──HTTPS──▶│   CA   │
-    │        │         │        │          │        │
-    └────────┘         └────────┘          └────────┘
+┌──────────┐            ┌─────────┐            ┌───────────┐        
+│          │            │  nginx  │   reload   │   async   │        
+│  Client  │───HTTPS───▶│ reverse │◀──config───│   cert    │        
+│          │            │  proxy  │            │  refresh  │        
+└──────────┘            └─────────┘            └───────────┘        
+                             │                       │              
+                             │                       │      ┌──────┐
+                             ▼                   request    │      │
+                        ┌─────────┐                cert────▶│  CA  │
+                        │   App   │                         │      │
+                        └─────────┘                         └──────┘
 ```
 
 The following should be run as root, so we have permission to read/write `/etc/ssl`:
@@ -296,6 +313,29 @@ server {
   }
 }
 ```
+
+### Configuring Caddy with mTLS
+
+[Caddy](https://github.com/caddyserver/caddy) is a new webserver which can automatically keep your
+certificate refreshed from CA services such as Let's Encrypt or Smallstep CA.
+
+In this example, Caddy is using Gandi's Live DNS service to automatically solve the ACME DNS-01
+challenge.
+
+```
+┌──────────┐            ┌─────────┐                    ┌─ ── ── ── ┐
+│          │            │         ├───────────────────▶    Gandi   │
+│  Client  │───HTTPS───▶│  Caddy  │─────async          │ Live DNS   
+│          │            │         │    request         └ ── ── ── ─┘
+└──────────┘            └─────────┘      cert                       
+                             │             │                        
+                             │             │        ┌──────┐        
+                             ▼             │        │      │        
+                        ┌─────────┐        └───────▶│  CA  │        
+                        │   App   │                 │      │        
+                        └─────────┘                 └──────┘        
+```
+
 
 #### Make sure the host renews the host cert before expiry
 
@@ -383,10 +423,9 @@ One can quite easily test a new docker image by restarting the `konlet` service.
 docker image has been updated on the registry:
 
 0. `IMAGE_ID=$(docker ps --format '{{.ID}}' --filter 'ancestor=asia.gcr.io/step-ca-a3dd5f/step-ca')`
-1. `docker stop $IMAGE_ID`
-2. `docker rm $IMAGE_ID`
-3. `docker pull asia.gcr.io/step-ca-a3dd5f/step-ca`
-4. `sudo systemctl restart konlet-startup`
+1. `docker rm -f $IMAGE_ID`
+2. `docker pull asia.gcr.io/step-ca-a3dd5f/step-ca`
+3. `sudo systemctl restart konlet-startup`
 
 
 ### Mounting a host volume into the docker image
