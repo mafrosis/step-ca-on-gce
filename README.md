@@ -1,81 +1,111 @@
-# Smallstep CA in GCP
+# Smallstep CA on GCE
 
-## Problem Statement and Ecosystem
+## Problem Statement
 
 I run [Home Assistant](https://www.home-assistant.io) in my home network, and wanted to expose that
 to the internet in order to integrate with a Google Home smart speaker. A sensible choice is to
-require mTLS client auth on all inbound conections, but that is hard without [sound PKI](https://smallstep.com/blog/everything-pki/).
+require mTLS client authentication on all inbound conections, but that is hard without
+[sound PKI](https://smallstep.com/blog/everything-pki/).
 
-This is where [Small Step's CA](https://github.com/smallstep/certificates) comes in.
-
-An architecture diagram of the full ecosystem:
-
+This is where the [Smallstep CA](https://github.com/smallstep/certificates) comes in.
 
 ```
-                                      ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-                                         step-ca project                                                             
-┌─ ── ── ── ── ─┐                     │                                                                             │
-│    Google                              ┌─────────────────────────────────────┐          ┌──────────────────────┐   
-    Assistant   │──HTTPS──────┐       │  │ Google PaaS          ┌────────────┐ │          │ VPC subnet           │  │
-│     Cloud     │             │          │                      │ Serverless │ │          │                      │   
-└ ── ── ── ── ──            Public    │  │  ┌───────────────┐ ┌▶│    VPC     │─┼─────┐    │  ┌────────────────┐  │  │
-        ▲                endpoint with   │  │  oAuth Proxy  │ │ │ Connector  │ │ request  │  │                │  │   
-        │               Google-provided──┼─▶│     NGINX     │─┘ └────────────┘ │ TLS cert │  │ Small Step CA  │  │  │
-        └─┐                SSL cert      │  │  (Cloud Run)  │                  │     └────┼─▶│    (GCE VM)    │  │   
-          │                           │  │  └───────────────┘                  │          │  │                │  │  │
-          │                              │          │                          │          │  └────────────────┘  │   
-          │                           │  │      proxied                        │          │           ▲          │  │
-                                         └──────requests───────────────────────┘          └───────────┼──────────┘   
-        User                          │        with added                                             │             │
-     interaction                                  mTLS                                                │              
-                                      └ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Firewalled  ─ ─ ─ ┘
-                                                  │                                                to Home           
-                                                  │                                              external IP         
-                                         ┌────────┼────────────────────────────────────────┐          │              
- ┌─ ── ── ── ── ┐                        │        ▼                                        │          │              
- │    Gandi     │          ACME          │   ┌─────────┐   refresh                         │          │              
- │   Live DNS    ◀────────DNS-01─────────┼───│  Caddy  │───SSL cert────────────────────────┼──────────┘              
-                │       challenge        │   └─────────┘                                   │                         
- └─ ── ── ── ── ┘                        │        │                        ┌────────────┐  │                         
-                                         │        │                        │    Home    │  │                         
-                                         │        └─────────────HTTP──────▶│ Assistant  │  │                         
-                                         │                                 └────────────┘  │                         
-                                         │ Home network                                    │                         
-                                         └─────────────────────────────────────────────────┘                         
+┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ 
+  step-ca project                                                        │
+│                                                                         
+           ┌────────────────────┐                                        │
+│          │ Cloud Run          │                                         
+           │    ┌───────────┐   │                                        │
+│          │    │           │   │              ┌──────────────────────┐   
+        ┌──┼───▶│   NGINX   │───┼──────┐       │ VPC subnet           │  │
+│       │  │    │           │   │      │       │                      │   
+        │  │    └───────────┘   │      │       │  ┌────────────────┐  │  │
+│       │  │          │         │    request   │  │                │  │   
+        │  └──────────┼─────────┘    TLS cert  │  │  Smallstep CA  │  │  │
+│       │             │                └───────┼─▶│    (GCE VM)    │  │   
+        │          proxied                     │  │                │  │  │
+│       │          request                     │  └────────────────┘  │   
+        │         with added                   │                      │  │
+│       │            mTLS                      └──────────────────────┘   
+        │             │                                                  │
+└ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ 
+        │             │                                                   
+      HTTPS           │       ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─                       
+        │             │         Home network       │                      
+        │             │       │                                           
+┌─ ── ── ── ── ─┐     │            ┌───────────┐   │                      
+│   External          │       │    │   Home    │                          
+ Service without│     └───────────▶│ Assistant │   │                      
+│    CA cert    │             │    │           │                          
+└ ── ── ── ── ──                   └───────────┘   │                      
+                              │                                           
+                               ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘                      
 ```
+
+In this diagram, the "external service" cannot talk to Home Assistant as it doesn't support mTLS
+connections. 
+
+The solution is to run a reverse-proxy which adds the mTLS certificate and forwards the request
+onto Home Assistant. Cloud Run is used as that cheaply provides a HTTPS endpoint on the web to which
+the external service can connect.
 
 
 ## Basic Setup
 
-The following are shorthand copy-pasteable commands to help you try Smallstep out.
+Refer to [Smallstep's instructions](https://smallstep.com/docs/step-ca/installation) along with the
+below, as the following will not be up-to-date forever.
 
 
 ### Install Smallstep CLI
 
-The [CLI]() is required to setup and interact with the CA from the shell:
+The [CLI](https://github/smallstep/cli) is required to setup and interact with the CA from the shell:
 
-    curl -o /tmp/step.tgz -L https://github.com/smallstep/cli/releases/download/v0.14.6/step_linux_0.14.6_amd64.tar.gz
+    curl -o /tmp/step.tgz -L https://github.com/smallstep/cli/releases/download/v0.15.14/step_linux_0.15.14_amd64.tar.gz
     tar xzf /tmp/step.tgz --strip-components=1 -C /tmp
     mv /tmp/bin/step /usr/local/bin
 
 ### Install Smallstep CA
 
-Install the actual [CA]():
+Install the actual [CA](https://github/smallstep/certificates):
 
-    curl -o /tmp/step-ca.tgz -L https://github.com/smallstep/certificates/releases/download/v0.14.6/step-certificates_linux_0.14.6_amd64.tar.gz
+    curl -o /tmp/step-ca.tgz -L https://github.com/smallstep/certificates/releases/download/v0.15.11/step-certificates_linux_0.15.11_amd64.tar.gz
     tar xzf /tmp/step-ca.tgz --strip-components=1 -C /tmp
     mv /tmp/bin/step-ca /usr/local/bin
 
-### Configure and run CA
 
-Basic two-liner setup - see `step-ca --help`:
+### Configure and run Step CA
 
-    step ca init --name "mafro.dev CA" \
-        --provisioner admin \
-        --dns certs.mafro.dev --address ":443" \
-        --password-file password.txt \
-        --provisioner-password-file password.txt
-    step-ca ~/.step/config/ca.json
+Example `step-ca` configuration, adding a JWT provisioner called `admin`, and SSH cert support. This
+is copy-pasteable and will create files in `/tmp/step` for you to poke around:
+
+```
+> export STEPPATH=/tmp/step && mkdir -p $STEPPATH
+> step ca init --name="mafro.dev CA" --provisioner=admin --dns=certs.mafro.dev --address=':443' --ssh
+✔ What do you want your password to be? [leave empty and we'll generate one]:
+✔ Password: ...
+
+Generating root certificate...
+all done!
+
+Generating intermediate certificate...
+
+Generating user and host SSH certificate signing keys...
+all done!
+
+✔ Root certificate: /tmp/step/certs/root_ca.crt
+✔ Root private key: /tmp/step/secrets/root_ca_key
+✔ Root fingerprint: c7641ce4f91993dc3f00000000000000000000000f829c626d20fa02d89600e0
+✔ Intermediate certificate: /tmp/step/certs/intermediate_ca.crt
+✔ Intermediate private key: /tmp/step/secrets/intermediate_ca_key
+✔ SSH user root certificate: /tmp/step/certs/ssh_user_ca_key.pub
+✔ SSH user root private key: /tmp/step/secrets/ssh_user_ca_key
+✔ SSH host root certificate: /tmp/step/certs/ssh_host_ca_key.pub
+✔ SSH host root private key: /tmp/step/secrets/ssh_host_ca_key
+✔ Database folder: /tmp/step/db
+✔ Templates folder: /tmp/step/templates
+✔ Default configuration: /tmp/step/config/defaults.json
+✔ Certificate Authority configuration: /tmp/step/config/ca.json
+```
 
 
 ## Setup GCP
@@ -314,6 +344,18 @@ server {
 }
 ```
 
+#### Make sure the host renews the host cert before expiry
+
+```
+cat <<EOF > /etc/cron.weekly/rotate-certificate
+#!/bin/sh
+export STEPPATH=/root/.step
+cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
+exit 0
+EOF
+```
+
+
 ### Configuring Caddy with mTLS
 
 [Caddy](https://github.com/caddyserver/caddy) is a new webserver which can automatically keep your
@@ -337,38 +379,35 @@ challenge.
 ```
 
 
-#### Make sure the host renews the host cert before expiry
-
-```
-cat <<EOF > /etc/cron.weekly/rotate-certificate
-#!/bin/sh
-export STEPPATH=/root/.step
-cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
-exit 0
-EOF
-```
-
-
 ### Service-specific JWK Provisioner
 
-To auto-provision certificates on AWS Lambda, we need an unencrypted private key which is known to
-the CA.
+To auto-provision certificates in a service (such as Cloud Run), we can create a unique `JWK`
+provisioner dedicated to just that service. An unencrypted private key will need to be made available
+on the service - secured in this case in Google KMS.
 
-Generate a new keypair and decrypt the keypair's password for securing in AWS KMS. Lastly, a `JWK`
-provisioner is created from that keypair:
+#### Setup a JWK Provisioner
 
- 1. `step crypto jwk create lambda-jwk.pub lambda-jwk.key`
- 2. `step crypto jwe decrypt < lambda-jwk.key > lambda-jwk.unencrypted`
- 3. `step ca provisioner add LambdaAWS lambda-jwk.key --type JWK`
+This step only needs to be done once.
 
-The `.unencrypted` file should be stored securely in your application (in this case AWS KMS), and
+Generate a new keypair and decrypt the keypair's password for securing in KMS, then create the `JWK`
+provisioner from that keypair:
+
+ 1. `step crypto jwk create proxy-jwk.pub proxy-jwk.key`
+ 2. `step crypto jwe decrypt < proxy-jwk.key > proxy-jwk.unencrypted`
+ 3. `step ca provisioner add HomeAssistantProxy proxy-jwk.key --type JWK`
+
+The `.unencrypted` file should be stored securely in your application (in this case GCP KMS), and
 then deleted.
 
-Use this unencrypted private key to generate your own token, and then certificate, without
+#### Generate a cert using the JWK provisioner
+
+Use this unencrypted private key to generate your own token, and then certificate, without human
 interaction:
 
- 1. `step ca token test-token-subj --provisioner ha@lambda.aws --key lambda-jwk.unencrypted`
- 2. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner AWS --principal $HOST --token $TOKEN`
+ 1. `step ca token token-subject --provisioner HomeAssistantProxy --key proxy-jwk.unencrypted --ca-url https://ca.mafro.internal --root root_ca.crt`
+ 2. `step ca certificate HomeAssistantProxy /tmp/client.crt /tmp/client.key --token "${TOKEN}" --ca-url https://ca.mafro.internal --force
+
+You can see this in action in the [nginx mTLS proxy](./proxy/docker-entrypoint.sh#L39).
 
 
 ## References
