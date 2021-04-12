@@ -244,16 +244,10 @@ Google does the authentication for us, and `step-ca` issues the cert.
 
 #### Setup the Google oAuth app
 
-Note: Naming conventions mean we are SSHing from the _client_ into the _host_ server.
-
-From `1. CREATE A GOOGLE OAUTH CREDENTIAL`:
+Note: The naming convention here is to SSH from the _client_ into the _host_ server.
 
  1. Configure oAuth consent at https://console.developers.google.com/apis/credentials/consent
  2. Create an oAuth app at https://console.developers.google.com/apis/credentials/oauthclient, choosing `Desktop app`
-
-#### Configure Step CLI on the host SSH server
-
-As root, install the binary in [Install Smallstep CLI](#install-smallstep-cli).
 
 #### Create trust relationship between host server and our CA
 
@@ -261,17 +255,65 @@ Next our CA needs to trust an identity document provided by the host system. In 
 the host is an AWS EC2 instance which provides its instance identity to the CA server, and is trusted
 via the Amazon signature of the AWS account ID (see [script here](https://gist.github.com/tashian/fde43668cbf6e3227fb13ef51db650b8)).
 
-The following should be run as root, so we have permission to read/write `/etc/ssh`. In this example,
-the server's hostname is `locke`:
+On the host server, install the [Smallstep CLI tools](#install-smallstep-cli). Next, bootstrap the
+`step` client as usual:
 
- 0. `export HOST=locke`
- 1. `CA_FINGERPRINT=$(step certificate fingerprint root_ca.crt)`
- 2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT`
- 3. `TOKEN=$(step ca token $HOST --ssh --host --provisioner admin)`
- 4. `echo $TOKEN | step crypto jwt inspect --insecure`
- 5. `step ssh certificate $HOST /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner admin --principal $HOST --token $TOKEN`
- 6. `step ssh config --host --set Certificate=ssh_host_ecdsa_key-cert.pub --set Key=ssh_host_ecdsa_key`
- 7. `systemctl restart sshd`
+```
+> CA_FINGERPRINT=$(step certificate fingerprint root_ca.crt)
+> step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT
+The root certificate has been saved in $HOME/.step/certs/root_ca.crt.
+Your configuration has been saved in $HOME/.step/config/defaults.json.
+```
+
+Generate a certificate and configure `sshd` to use it. Run the following as root, so it's possible
+to write `/etc/ssh`.
+
+In the following example, the host server is named `locke`. The steps are:
+
+1. Generate a token with the `admin` provisioner
+2. Inspect the token for your amusement
+
+```
+> TOKEN=$(step ca token $(hostname) --ssh --host --provisioner admin)
+✔ Provisioner: admin (JWK) [kid: ydABxIT07b0000000000000000000000nGYFRfEGmNA]
+✔ Please enter the password to decrypt the provisioner key:
+> echo $TOKEN | step crypto jwt inspect --insecure
+{
+  "header": {
+    "alg": "ES256",
+    "kid": "ydABxIT07bl-G9jSxfCB45pxNylrKitsnGYFRfEGmNA",
+    "typ": "JWT"
+  },
+  "payload": {
+    "aud": "https://ringil:8443/1.0/ssh/sign",
+    "exp": 1618046362,
+    "iat": 1618046062,
+    "iss": "admin",
+    "jti": "776b2fce13c90b675f0a1f55712eee80f2504f5f6d4723e0a4fd80e5d35fde40",
+    "nbf": 1618046062,
+    "sha": "b07c800d7bf36422bd7da01fc2db11efebaafdd5b83092ff82136e75a6d033f9",
+    "step": {
+      "ssh": {
+        "certType": "host",
+        "keyID": "locke",
+        "principals": [],
+        "validAfter": "",
+        "validBefore": ""
+      }
+    },
+    "sub": "locke"
+  },
+  "signature": "E-b6SIaN9atMMo-ICdnoUCjQWMLYuJxkVuB5dBDGjxtzKpPyC-ydnLH5qYV9TTss7MgA2tciMNi9ka-PJ0LNqg"
+}
+> step ssh certificate $(hostname) /etc/ssh/ssh_host_ecdsa_key.pub --host --sign --provisioner admin --principal $(hostname) --token $TOKEN
+✔ CA: https://ringil:8443
+✔ Would you like to overwrite /etc/ssh/ssh_host_ecdsa_key-cert.pub [y/n]: y
+✔ Certificate: /etc/ssh/ssh_host_ecdsa_key-cert.pub
+> step ssh config --host --set Certificate=ssh_host_ecdsa_key-cert.pub --set Key=ssh_host_ecdsa_key
+✔ /etc/ssh/sshd_config
+✔ /etc/ssh/ca.pub
+> systemctl restart sshd
+```
 
 #### Setup the client to use SSH via OIDC
 
@@ -282,101 +324,11 @@ The following steps are run on the _client_ system, which is connecting to the h
  3. `step ssh list --raw | step ssh inspect`
  4. `step ssh config`
 
-#### Make sure the host renews the host cert before expiry
-
-```
-cat <<EOF > /etc/cron.weekly/rotate-certificate
-#!/bin/sh
-export STEPPATH=/root/.step
-cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
-exit 0
-EOF
-```
 
 #### References for oAuth
 
 - https://smallstep.com/blog/diy-single-sign-on-for-ssh/
 - https://github.com/smallstep/certificates/blob/master/docs/provisioners.md#oidc
-
-
-### Configuring an nginx with mTLS
-
-Detailed instructions which expand on this [getting started guide](https://smallstep.com/hello-mtls/doc/combined/nginx/requests).
-
-```
-┌──────────┐            ┌─────────┐            ┌───────────┐        
-│          │            │  nginx  │   reload   │   async   │        
-│  Client  │───HTTPS───▶│ reverse │◀──config───│   cert    │        
-│          │            │  proxy  │            │  refresh  │        
-└──────────┘            └─────────┘            └───────────┘        
-                             │                       │              
-                             │                       │      ┌──────┐
-                             ▼                   request    │      │
-                        ┌─────────┐                cert────▶│  CA  │
-                        │   App   │                         │      │
-                        └─────────┘                         └──────┘
-```
-
-The following should be run as root, so we have permission to read/write `/etc/ssl`:
-
- 1. `CA_FINGERPRINT=$(step certificate fingerprint root_ca.crt)`
- 2. `step ca bootstrap --ca-url https://ca.example.com --fingerprint $CA_FINGERPRINT`
- 3. `step ca certificate ha.mafro.net /etc/ssl/ha.crt /etc/ssl/ha.key --provisioner=admin --san=ha.mafro.net --san=ringil`
-
-An example `nginx` server config using these certs, also configured for mTLS.
-
-```
-server {
-  listen 8882 ssl;
-  server_name ringil;
-
-  ssl_certificate         /etc/ssl/ha.crt;
-  ssl_certificate_key     /etc/ssl/ha.key;
-  ssl_dhparam             /etc/ssl/dhparam.pem;
-  ssl_protocols           TLSv1.2 TLSv1.3;
-  ssl_ciphers             HIGH:!aNULL:!MD5;
-  ssl_client_certificate  /root/.step/certs/root_ca.crt;
-  ssl_verify_client       on;
-
-  location / {
-    proxy_pass http://backend;
-  }
-}
-```
-
-#### Make sure the host renews the host cert before expiry
-
-```
-cat <<EOF > /etc/cron.weekly/rotate-certificate
-#!/bin/sh
-export STEPPATH=/root/.step
-cd /etc/ssh && step ssh renew ssh_host_ecdsa_key-cert.pub ssh_host_ecdsa_key --force 2> /dev/null
-exit 0
-EOF
-```
-
-
-### Configuring Caddy with mTLS
-
-[Caddy](https://github.com/caddyserver/caddy) is a new webserver which can automatically keep your
-certificate refreshed from CA services such as Let's Encrypt or Smallstep CA.
-
-In this example, Caddy is using Gandi's Live DNS service to automatically solve the ACME DNS-01
-challenge.
-
-```
-┌──────────┐            ┌─────────┐                    ┌─ ── ── ── ┐
-│          │            │         ├───────────────────▶    Gandi   │
-│  Client  │───HTTPS───▶│  Caddy  │─────async          │ Live DNS   
-│          │            │         │    request         └ ── ── ── ─┘
-└──────────┘            └─────────┘      cert                       
-                             │             │                        
-                             │             │        ┌──────┐        
-                             ▼             │        │      │        
-                        ┌─────────┐        └───────▶│  CA  │        
-                        │   App   │                 │      │        
-                        └─────────┘                 └──────┘        
-```
 
 
 ### Service-specific JWK Provisioner
