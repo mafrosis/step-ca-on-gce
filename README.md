@@ -218,7 +218,7 @@ This final -hack-step means downloading a key for this service account, and buil
 image with the key baked in :/
 
 
-### SSO for SSH
+## SSO for SSH
 
 This section is essentially short-form instructions derived from
 [smallstep.com/blog/diy-single-sign-on-for-ssh](https://smallstep.com/blog/diy-single-sign-on-for-ssh/).
@@ -242,14 +242,14 @@ Google does the authentication for us, and `step-ca` issues the cert.
                         └──────────┘                            
 ```
 
-#### Setup the Google oAuth app
+### Setup the Google oAuth app
 
 Note: The naming convention here is to SSH from the _client_ into the _host_ server.
 
  1. Configure oAuth consent at https://console.developers.google.com/apis/credentials/consent
  2. Create an oAuth app at https://console.developers.google.com/apis/credentials/oauthclient, choosing `Desktop app`
 
-#### Create trust relationship between host server and our CA
+### Create trust relationship between host server and our CA
 
 Next our CA needs to trust an identity document provided by the host system. In the blog post,
 the host is an AWS EC2 instance which provides its instance identity to the CA server, and is trusted
@@ -315,7 +315,7 @@ In the following example, the host server is named `locke`. The steps are:
 > systemctl restart sshd
 ```
 
-#### Setup the client to use SSH via OIDC
+### Setup the client to use SSH via OIDC
 
 The following steps are run on the _client_ system, which is connecting to the host configured above.
 
@@ -325,19 +325,19 @@ The following steps are run on the _client_ system, which is connecting to the h
  4. `step ssh config`
 
 
-#### References for oAuth
+### References for oAuth
 
 - https://smallstep.com/blog/diy-single-sign-on-for-ssh/
 - https://github.com/smallstep/certificates/blob/master/docs/provisioners.md#oidc
 
 
-### Service-specific JWK Provisioner
+## Service-specific JWK Provisioner
 
 To auto-provision certificates in a service (such as Cloud Run), we can create a unique `JWK`
 provisioner dedicated to just that service. An unencrypted private key will need to be made available
 on the service - secured in this case in Google KMS.
 
-#### Setup a JWK Provisioner
+### Setup a JWK Provisioner
 
 This step only needs to be done once.
 
@@ -351,7 +351,7 @@ provisioner from that keypair:
 The `.unencrypted` file should be stored securely in your application (in this case GCP KMS), and
 then deleted.
 
-#### Generate a cert using the JWK provisioner
+### Generate a cert using the JWK provisioner
 
 Use this unencrypted private key to generate your own token, and then certificate, without human
 interaction:
