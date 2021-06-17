@@ -230,27 +230,50 @@ Google does the authentication for us, and `step-ca` issues the cert.
 
 ```
 ┌──────────┐            ┌──────────┐           ┌─ ── ── ── ── ─┐
-│          │            │          │                            
+│          │            │          │
 │  Client  │────SSH────▶│  Server  │           │    Google     │
-│          │            │          │           │   oAuth app   │
-└──────────┘            └──────────┘                            
+│  (macOS) │            │  (locke) │               oAuth app
+│          │            │          │           │               │
+└──────────┘            └──────────┘
       │                                        └─ ── ── ── ── ─┘
-      │                                                ▲        
-      │                 ┌──────────┐                   │        
-    request             │          │                   │        
-      cert─────────────▶│    CA    │────authenticate───┘        
-                        │          │                            
-                        └──────────┘                            
+      │                                                ▲
+      │                 ┌──────────┐                   │
+    request             │          │                   │
+      cert─────────────▶│    CA    │────authenticate───┘
+                        │ (ringil) │
+                        │          │
+                        └──────────┘
 ```
-
-### Setup the Google oAuth app
 
 Note: The naming convention here is to SSH from the _client_ into the _host_ server.
 
- 1. Configure oAuth consent at https://console.developers.google.com/apis/credentials/consent
- 2. Create an oAuth app at https://console.developers.google.com/apis/credentials/oauthclient, choosing `Desktop app`
 
-### Create trust relationship between host server and our CA
+#### Setup the Google oAuth app
+
+ 1. Configure oAuth consent at https://console.developers.google.com/apis/credentials/consent
+ 2. Create an oAuth app at https://console.cloud.google.com/apis/credentials
+   a. Click `Create credentials`, choosing `OAuth client ID`
+   b. Select `Desktop app` as application type
+   c. Retain your client ID and client secret
+
+
+#### Configure the CA to support this OIDC app
+
+Next, we must configure the CA with a new OIDC provisioner (named "Google") using above secrets. The
+`--domain` parameter is your Google SSO domain name.
+
+```
+> step ca provisioner add Google --type=OIDC --ssh \
+    --client-id "$OIDC_CLIENT_ID" \
+    --client-secret "$OIDC_CLIENT_SECRET" \
+    --configuration-endpoint 'https://accounts.google.com/.well-known/openid-configuration' \
+    --domain mafro.net
+Success! Your `step-ca` config has been updated. To pick up the new configuration SIGHUP (kill -1 <pid>) or restart the step-ca
+ process.
+```
+
+
+#### Create trust relationship between host server and our CA
 
 Next our CA needs to trust an identity document provided by the host system. In the blog post,
 the host is an AWS EC2 instance which provides its instance identity to the CA server, and is trusted
