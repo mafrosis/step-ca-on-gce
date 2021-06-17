@@ -12,22 +12,23 @@ on each request.
 Although this public gateway diminishes the security of using TLS client certs in the first place,
 a couple of additional controls are in place - forwarding only a specific set of URLs (like an API
 gateway) and doing a [double reverse-DNS lookup](https://support.google.com/webmasters/answer/80553) 
-to ensure the source of the requests.
+to ensure the source of the requests are Google servers.
 
 
 ## How does it work
 
 Double reverse-DNS lookups as a filter in NGINX requires a [custom plugin](https://github.com/flant/nginx-http-rdns).
 
-The multistage docker build in [`Dockerfile.nginx`] first builds the plugin from source, and then
-copies it into a standard nginx image. Add the smallstep CLI for retrieving the mTLS cert from the
-CA, and the `docker-entrypoint.sh` which the code for retrieving a cert and writing it to disk
-before `nginx` starts. Also include the gcloud tools for metadata queries and secrets retrieval.
+The multistage docker build in [`Dockerfile.nginx`](./Dockerfile.nginx) first builds the plugin
+from source, and then copies it into a standard nginx image. Add the smallstep CLI for retrieving
+the mTLS cert from the CA, and the `docker-entrypoint.sh` which the code for retrieving a cert and
+writing it to disk before `nginx` starts. Also include the gcloud tools for metadata queries and
+secrets retrieval.
 
 Note that `root_ca.crt` is the CA certificate for my personal Smallstep CA.
 
 This design suits Cloud Run well, as the docker container is started fresh on (almost) every invocation.
-Because of this, no cert-refresh sidecar is necessary (ala [certbot](https://github.com/certbot/certbot)
+Because of this, no cert-refresh sidecar is necessary, ala [certbot](https://github.com/certbot/certbot)
 since the fresh certs are created (almost) every invocation.
 
 
