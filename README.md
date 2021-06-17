@@ -397,7 +397,8 @@ If you wanted to have a peek at your SSH certificate, as provisioned by your CA:
 - https://github.com/smallstep/certificates/blob/master/docs/provisioners.md#oidc
 
 
-## Service-specific JWK Provisioner
+Service-specific JWK Provisioner
+--------------------------------
 
 To auto-provision certificates in a service (such as Cloud Run), we can create a unique `JWK`
 provisioner dedicated to just that service. An unencrypted private key will need to be made available
@@ -405,14 +406,23 @@ on the service - secured in this case in Google KMS.
 
 ### Setup a JWK Provisioner
 
-This step only needs to be done once.
+This step only needs to be done once, on the host running the CA.
 
 Generate a new keypair and decrypt the keypair's password for securing in KMS, then create the `JWK`
 provisioner from that keypair:
 
- 1. `step crypto jwk create proxy-jwk.pub proxy-jwk.key`
- 2. `step crypto jwe decrypt < proxy-jwk.key > proxy-jwk.unencrypted`
- 3. `step ca provisioner add HomeAssistantProxy proxy-jwk.key --type JWK`
+```
+> step crypto jwk create proxy-jwk.pub proxy-jwk.key
+Please enter the password to encrypt the private JWK:
+Your public key has been saved in proxy-jwk.pub.
+Your private key has been saved in proxy-jwk.key.
+> step crypto jwe decrypt < proxy-jwk.key > proxy-jwk.unencrypted
+Please enter the password to decrypt the content encryption key:
+> step ca provisioner add HomeAssistantProxy proxy-jwk.key --type JWK
+Please enter the password to decrypt proxy-jwk.key:
+Please enter the password to encrypt the private JWK:
+Success! Your `step-ca` config has been updated. To pick up the new configuration SIGHUP (kill -1 <pid>) or restart the step-ca process.
+```
 
 The `.unencrypted` file should be stored securely in your application (in this case GCP KMS), and
 then deleted.
@@ -422,8 +432,14 @@ then deleted.
 Use this unencrypted private key to generate your own token, and then certificate, without human
 interaction:
 
- 1. `step ca token token-subject --provisioner HomeAssistantProxy --key proxy-jwk.unencrypted --ca-url https://ca.mafro.internal --root root_ca.crt`
- 2. `step ca certificate HomeAssistantProxy /tmp/client.crt /tmp/client.key --token "${TOKEN}" --ca-url https://ca.mafro.internal --force
+```
+> TOKEN=$(step ca token token-subject --provisioner HomeAssistantProxy --key proxy-jwk.unencrypted)
+✔ Provisioner: HomeAssistantProxy (JWK) [kid: nCdmAqcD-LAdEfMW7qCtqqTBO7z50FQdHvKEzAS_EeY]
+> step ca certificate proxy-cert /tmp/client.crt /tmp/client.key --token "$TOKEN" --force
+✔ CA: https://ringil:8443
+✔ Certificate: /tmp/client.crt
+✔ Private Key: /tmp/client.key
+```
 
 You can see this in action in the [nginx mTLS proxy](./proxy/docker-entrypoint.sh#L39).
 
@@ -435,7 +451,8 @@ https://smallstep.com/blog/diy-single-sign-on-for-ssh/
 https://gitter.im/smallstep/community
 
 
-## GCE Doco
+GCE Doco
+--------
 
 Some notes and recipes for useful things you can do in GCE.
 
